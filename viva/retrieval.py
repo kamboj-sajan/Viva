@@ -40,15 +40,18 @@ def tsquery(text: str) -> str | None:
     return " | ".join(words[:64]) or None
 
 
-def search(repo_id: int, text: str, k: int = 6, exclude_ids: tuple[int, ...] = ()) -> list[dict]:
-    """Top-k chunks for free text. Falls back to keywords alone if embedding fails."""
+def search(
+    repo_id: int, text: str, k: int = 6, exclude_ids: tuple[int, ...] = (), paths: list[str] | None = None
+) -> list[dict]:
+    """Top-k chunks for free text, optionally limited to some files. Falls back to keywords
+    alone if embedding fails."""
     ranked: list[list[int]] = []
     if q := tsquery(text):
         rows = db.query(
             """SELECT id FROM chunks, to_tsquery('simple', %s) q
-               WHERE repo_id = %s AND search_tsv @@ q
+               WHERE repo_id = %s AND search_tsv @@ q AND (%s::text[] IS NULL OR path = ANY(%s::text[]))
                ORDER BY ts_rank_cd(search_tsv, q) DESC LIMIT %s""",
-            (q, repo_id, CANDIDATES),
+            (q, repo_id, paths, paths, max(CANDIDATES, k)),
         )
         ranked.append([r["id"] for r in rows])
     try:
@@ -58,8 +61,9 @@ def search(repo_id: int, text: str, k: int = 6, exclude_ids: tuple[int, ...] = (
     if vec is not None:
         rows = db.query(
             """SELECT id FROM chunks WHERE repo_id = %s AND vector_dims(embedding) = %s
+                 AND (%s::text[] IS NULL OR path = ANY(%s::text[]))
                ORDER BY embedding <=> %s::vector LIMIT %s""",
-            (repo_id, len(vec), db.vector(vec), CANDIDATES),
+            (repo_id, len(vec), paths, paths, db.vector(vec), max(CANDIDATES, k)),
         )
         ranked.append([r["id"] for r in rows])
 

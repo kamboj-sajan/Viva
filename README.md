@@ -5,7 +5,7 @@ projects on your resume. Paste a public repo link; Viva reads the code, asks the
 sharp interviewer would, and grades your spoken answers (via Wispr Flow) against the actual
 code — citing the exact file and lines for every verdict.
 
-**Status:** milestone 1 of 6 — ingestion from the command line.
+**Status:** milestone 2 of 6 — ingestion and question generation from the command line.
 
 ## Local setup
 
@@ -41,9 +41,12 @@ To tear it all down: `az group delete -n rg-viva`.
 ## Command line
 
 ```bash
-uv run python -m viva ingest https://github.com/owner/repo          # ingest (cached per commit)
+uv run python -m viva ingest https://github.com/owner/repo          # ingest + generate questions (cached per commit)
 uv run python -m viva ingest https://github.com/o/r/tree/main/src   # a branch and subfolder
 uv run python -m viva ingest <url> --force                          # re-ingest the same commit
+uv run python -m viva ingest <url> --no-questions                   # ingest only
+uv run python -m viva questions <id> [--brief] # interview questions with answer keys and citations
+uv run python -m viva questions <id> --regenerate   # throw them away and write new ones
 uv run python -m viva repos                    # list ingested repos and their status
 uv run python -m viva files <id> [--all]       # ranked files and why (--all shows ones cut by the cap)
 uv run python -m viva map <id>                 # per-file summaries + architecture overview
@@ -75,6 +78,29 @@ uv run python -m viva verify <id>              # re-download files and check eve
 
 Typical cost and time on gpt-5-mini: about $0.04 and 50 s for a 57-file repo, $0.07 and 50 s
 for a 107-file repo. A repeat run on the same commit is instant.
+
+## How questions are generated
+
+1. **Areas**: the strong model reads the repo map and picks 6-10 interview areas (core flows, key
+   components, failure handling, data model, deployment), each with the 1-6 files that matter.
+   If the repo has deploy/CI files and no deployment area was picked, one is added.
+2. **Question types** are planned in code so the whole repo follows the mix: about 40% how it
+   works, 25% failure modes, 20% design decisions, 15% scaling, matched to each area's kind.
+3. **Per area**, the model sees only that area's code with line numbers (small files whole, big
+   files as their most relevant chunks, ~12K tokens) and writes 2-3 questions. Each has a type,
+   difficulty 1-3, an answer key of 2-5 key points (must-have or nice-to-have, each with a file,
+   line range and exact quote), likely misconceptions and two follow-ups. Design and scaling
+   questions are marked open: graded on soundness and consistency with the code.
+4. **Validation in code** (`viva/citations.py`): every citation must name an ingested file and
+   real lines whose text contains the quote after collapsing whitespace. If the quote is real but
+   the lines are off, the citation is moved to where the quote actually is, only when it occurs
+   exactly once in the file. Failing key points are dropped; a question needs at least two
+   verified must-have points (open questions: at least one point). Questions that name a file or
+   line number are dropped, and so are near-duplicates of questions already stored (embedding
+   similarity ≥ 0.72).
+5. Areas run in parallel, most important first, so the first five questions are ready about a
+   minute after ingestion while the rest finish in the background. Roughly $0.13 per repo on
+   gpt-5-mini.
 
 ## Environment variables
 

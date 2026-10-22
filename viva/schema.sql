@@ -67,3 +67,38 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS llm_usage_day ON llm_usage (day);
+
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS questions_status TEXT NOT NULL DEFAULT 'pending';  -- pending | generating | done | failed
+
+-- Interview topics picked from the repo map, most interview-worthy first.
+CREATE TABLE IF NOT EXISTS areas (
+    id BIGSERIAL PRIMARY KEY,
+    repo_id BIGINT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    position INT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    description TEXT NOT NULL,
+    files TEXT[] NOT NULL,
+    planned_types TEXT[] NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | generating | done | failed
+    stats JSONB,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS areas_repo ON areas (repo_id);
+
+-- answer_key: [{point, importance: must|nice, evidence: [{path, start_line, end_line, quote}]}]
+CREATE TABLE IF NOT EXISTS questions (
+    id BIGSERIAL PRIMARY KEY,
+    repo_id BIGINT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    area_id BIGINT NOT NULL REFERENCES areas(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,  -- how_it_works | failure_modes | design_decision | scaling
+    difficulty INT NOT NULL,
+    open BOOLEAN NOT NULL,
+    text TEXT NOT NULL,
+    answer_key JSONB NOT NULL,
+    misconceptions JSONB NOT NULL,
+    follow_ups JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS questions_repo ON questions (repo_id);
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS embedding VECTOR;  -- for spotting near-duplicate questions

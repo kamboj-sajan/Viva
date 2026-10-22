@@ -2,13 +2,14 @@
 
 import argparse
 import sys
-
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from viva import db, github, ingest, llm, retrieval
+import time
+
+from viva import db, github, ingest, llm, questions, retrieval
 
 console = Console()
 
@@ -17,17 +18,39 @@ def _link(repo: dict, path: str, start: int | None = None, end: int | None = Non
     return github.blob_url(repo["owner"], repo["name"], repo["commit_sha"], path, start, end)
 
 
+def _listener(status):
+    def listener(stage: str, counts: dict) -> None:
+        detail = " ".join(f"{k}={v}" for k, v in counts.items())
+        if stage:
+            console.log(f"[bold cyan]{stage}[/] {detail}")
+        status.update(f"{stage or 'working'} {detail}")
+
+    return listener
+
+
 def cmd_ingest(args) -> None:
     with console.status("Resolving repo…") as status:
+        repo_id = ingest.ingest(args.url, force=args.force, listener=_listener(status))
+    print_report(ingest.load(repo_id))
+    if not args.no_questions:
+        run_questions(repo_id, regenerate=args.force)
+        console.print(f"See them with: [bold]python -m viva questions {repo_id}[/]")
+
+
+def run_questions(repo_id: int, regenerate: bool = False) -> None:
+    started = time.time()
+    with console.status("Generating questions…") as status:
+        listen = _listener(status)
 
         def listener(stage: str, counts: dict) -> None:
-            if stage:
-                console.log(f"[bold cyan]{stage}[/] {' '.join(f'{k}={v}' for k, v in counts.items())}")
-            status.update(f"{stage or 'working'} {' '.join(f'{k}={v}' for k, v in counts.items())}")
+            if stage in ("first questions ready", "questions done"):
+                stage = f"{stage} after {time.time() - started:.0f}s"
+            listen(stage, counts)
 
-        repo_id = ingest.ingest(args.url, force=args.force, listener=listener)
+        questions.generate(repo_id, listener=listener, regenerate=regenerate)
     repo = ingest.load(repo_id)
-    print_report(repo)
+    if repo["questions_status"] == "failed":
+        raise RuntimeError(f"Question generation failed: {repo['error']}")
 
 
 def print_report(repo: dict) -> None:
@@ -76,6 +99,75 @@ def print_map(repo: dict) -> None:
     for c in ov["components"]:
         body += f"\n• [bold]{escape(c['name'])}[/]: {escape(c['description'])} [dim]({escape(', '.join(c['files']))})[/]"
     console.print(Panel(body, title="Repo map"))
+
+
+TYPE_LABEL = {"how_it_works": "how it works", "failure_modes": "failure modes", "design_decision": "design", "scaling": "scaling"}
+
+
+def cmd_questions(args) -> None:
+    repo = ingest.load(args.repo_id)
+    if args.regenerate or repo["questions_status"] in ("pending", "failed"):
+        run_questions(repo["id"], regenerate=args.regenerate)
+    print_questions(ingest.load(args.repo_id), show_keys=not args.brief)
+
+
+def print_questions(repo: dict, show_keys: bool = True) -> None:
+    areas = db.query("SELECT * FROM areas WHERE repo_id = %s ORDER BY position", (repo["id"],))
+    qs = db.query("SELECT * FROM questions WHERE repo_id = %s ORDER BY area_id, id", (repo["id"],))
+    by_area: dict[int, list[dict]] = {}
+    for q in qs:
+        by_area.setdefault(q["area_id"], []).append(q)
+    n = 0
+    for a in areas:
+        console.rule(f"[bold]{escape(a['name'])}[/] [dim]({a['kind']}; {escape(', '.join(a['files']))})[/]")
+        if a["status"] == "failed":
+            console.print(f"[red]failed:[/] {escape(a['error'] or '')}")
+        for q in by_area.get(a["id"], []):
+            n += 1
+            badge = f"{TYPE_LABEL[q['type']]} · difficulty {q['difficulty']}" + (" · open" if q["open"] else "")
+            console.print(f"\n[bold]Q{n}.[/] [magenta]\\[{badge}][/] {escape(q['text'])}")
+            if not show_keys:
+                continue
+            for kp in q["answer_key"]:
+                mark = "[green]must[/]" if kp["importance"] == "must" else "[dim]nice[/]"
+                console.print(f"   {mark} {escape(kp['point'])}")
+                for ev in kp["evidence"]:
+                    fixed = " [yellow](lines corrected)[/]" if ev.get("repaired") else ""
+                    console.print(
+                        f"        [cyan]{escape(ev['path'])}:{ev['start_line']}-{ev['end_line']}[/]{fixed} "
+                        f"[dim]\"{escape(ev['quote'])}\"[/]"
+                    )
+                    console.print(f"        [dim]{_link(repo, ev['path'], ev['start_line'], ev['end_line'])}[/]")
+            for m in q["misconceptions"]:
+                console.print(f"   [red]✗[/] {escape(m)}")
+            for f in q["follow_ups"]:
+                console.print(f"   [blue]→[/] {escape(f)}")
+        for d in (a["stats"] or {}).get("dropped", []):
+            console.print(f"   [dim]dropped ({escape(d['reason'])}): {escape(d['question'])}[/]")
+    print_question_stats(repo, areas, qs)
+
+
+def print_question_stats(repo: dict, areas: list[dict], qs: list[dict]) -> None:
+    stats = [a["stats"] or {} for a in areas]
+    planned = sum(len(a["planned_types"]) for a in areas)
+    mix = {t: sum(q["type"] == t for q in qs) for t in TYPE_LABEL}
+    reasons: dict[str, int] = {}
+    for s in stats:
+        for k, v in (s.get("evidence_reasons") or {}).items():
+            reasons[k] = reasons.get(k, 0) + v
+    points = sum(len(q["answer_key"]) for q in qs)
+    console.print(
+        Panel.fit(
+            f"{len(qs)} questions kept of {sum(s.get('returned', 0) for s in stats)} written ({planned} planned) "
+            f"across {len(areas)} areas ({sum(a['status'] == 'failed' for a in areas)} failed)\n"
+            f"mix: " + ", ".join(f"{TYPE_LABEL[t]} {v} ({v / max(len(qs), 1):.0%})" for t, v in mix.items()) + "\n"
+            f"{points} verified key points; dropped {sum(s.get('points_dropped', 0) for s in stats)} key points and "
+            f"{sum(s.get('evidence_dropped', 0) for s in stats)} citations"
+            + (f" ({', '.join(f'{v} {k}' for k, v in reasons.items())})" if reasons else "") + "; "
+            f"corrected line numbers on {sum(s.get('evidence_repaired', 0) for s in stats)} citations",
+            title="Validator",
+        )
+    )
 
 
 def cmd_files(args) -> None:
@@ -148,7 +240,13 @@ def main() -> None:
     s = sub.add_parser("ingest", help="ingest a public GitHub repo")
     s.add_argument("url")
     s.add_argument("--force", action="store_true", help="re-ingest even if this commit is cached")
+    s.add_argument("--no-questions", action="store_true", help="skip question generation")
     s.set_defaults(fn=cmd_ingest)
+    s = sub.add_parser("questions", help="generate (if needed) and show a repo's interview questions")
+    s.add_argument("repo_id", type=int)
+    s.add_argument("--regenerate", action="store_true", help="throw away existing questions and write new ones")
+    s.add_argument("--brief", action="store_true", help="questions only, no answer keys")
+    s.set_defaults(fn=cmd_questions)
     s = sub.add_parser("files", help="list a repo's files with ranking")
     s.add_argument("repo_id", type=int)
     s.add_argument("--all", action="store_true", help="include files that were cut by the cap")
