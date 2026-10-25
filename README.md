@@ -2,10 +2,31 @@
 
 Viva interviews you about your own GitHub repos the way a senior engineer drills into the
 projects on your resume. Paste a public repo link; Viva reads the code, asks the questions a
-sharp interviewer would, and grades your spoken answers (via Wispr Flow) against the actual
-code — citing the exact file and lines for every verdict.
+sharp interviewer would, and grades your spoken answers (dictated with Wispr Flow) against the
+actual code. Every verdict comes with receipts: when you're wrong, it shows the exact lines that
+prove it, linked to GitHub.
 
-**Status:** milestone 4 of 6 — the full interview loop in the browser.
+**Live:** https://viva.victoriousbeach-5e8cd7ae.koreacentral.azurecontainerapps.io (no sign-up)
+
+## Architecture
+
+One service and one Docker image: FastAPI serves a JSON API and the built React app.
+
+```
+GitHub link ─▶ resolve to a commit ─▶ tarball (read in memory, never executed)
+            ─▶ filter + rank files ─▶ chunk (tree-sitter / Verilog) ─▶ Postgres + pgvector
+            ─▶ file summaries + architecture overview (repo map)
+            ─▶ interview areas ─▶ questions with cited answer keys ─▶ citation validator
+answer ─▶ hybrid search + answer key ─▶ grader ─▶ citation validator + scoring rubric ─▶ verdict
+```
+
+- `viva/github.py` link parsing, refs over git smart HTTP, codeload tarballs (no API token needed)
+- `viva/files.py` filtering and ranking · `viva/chunking.py` exact-line chunks
+- `viva/retrieval.py` identifier-aware keyword search + vectors, reciprocal rank fusion
+- `viva/repomap.py` file summaries and overview · `viva/questions.py` areas and questions
+- `viva/citations.py` the evidence validator · `viva/grading.py` grading and the rubric
+- `viva/sessions.py` sessions, adaptive difficulty, readiness · `viva/app.py` the web API
+- `web/` React + TypeScript + Vite + Tailwind
 
 ## Local setup
 
@@ -77,8 +98,9 @@ uv run python -m viva verify <id>              # re-download files and check eve
 
 1. **Resolve** the link (any form: `owner/repo`, `/tree/<branch>/<folder>`, `/blob/...`, SSH) to a
    commit SHA. Everything is pinned to that commit and cached by (repo, commit, subfolder).
-2. **Download** the tarball via the GitHub API. It is read in memory; nothing from the repo is
-   extracted to disk or executed.
+2. **Download** the tarball from GitHub's codeload. It is read in memory; nothing from the repo is
+   extracted to disk or executed. Refs come from git's smart-HTTP endpoint, so no API token or
+   API rate limit is involved (the REST API is used only if `GITHUB_TOKEN` is set).
 3. **Filter** out binaries, lockfiles, vendored/build/generated code, files over 200 KB, and
    anything that looks like a secret (`.env*`, keys, credential files, embedded private keys or
    API tokens). Secret files are never stored or shown.
@@ -92,7 +114,7 @@ uv run python -m viva verify <id>              # re-download files and check eve
 6. **Index**: identifier-aware keywords (`parseHTTPRequest` ≈ `parse_http_request`) in a Postgres
    text index plus text-embedding-3-small vectors in pgvector, merged with reciprocal rank fusion.
 7. **Map**: a summary per file (cheap tier, batched), then an architecture overview from the
-   summaries, README and last 50 commit messages (strong tier).
+   summaries, README and recent commit messages (strong tier).
 
 Typical cost and time on gpt-5-mini: about $0.04 and 50 s for a 57-file repo, $0.07 and 50 s
 for a 107-file repo. A repeat run on the same commit is instant.
@@ -158,6 +180,14 @@ contradictions (the worst bug). Each run is appended to `evals/history.jsonl`; r
 prompt change. Current result on gpt-5-mini at low effort: 13/13 passed, 0 false contradictions,
 ~12-14 s per answer, about $0.08 per run.
 
+## Public demo safety
+
+- Per-IP limits: 10 repo submissions and 80 graded answers per hour (`RATE_*` variables).
+- A global daily LLM budget (`DAILY_BUDGET_USD`, default $5; $8 in production): spend is tracked
+  per call in `llm_usage`, and once it's reached the app shows a friendly "come back tomorrow".
+- Caching: ingestion and questions per commit; the same answer to the same question reuses its
+  earlier grade; "I don't know" never calls the model.
+
 ## Environment variables
 
 | Variable | Default | Notes |
@@ -168,16 +198,48 @@ prompt change. Current result on gpt-5-mini at low effort: 13/13 passed, 0 false
 | `LLM_EFFORT_STRONG` / `LLM_EFFORT_CHEAP` | `medium` / `minimal` | reasoning effort; empty for non-reasoning models (then temperature 0) |
 | `LLM_EFFORT_GRADE` | `low` | grading effort; low keeps answers graded in ~12 s and passes the eval |
 | `EMBED_MODEL` / `EMBED_DIM` | `text-embedding-3-small` / `1024` | served by the same endpoint |
-| `GITHUB_TOKEN` | — | optional locally (60 API calls/hour, ~3 per ingest); needed in production |
-| `DATABASE_URL` | `postgresql://viva:viva@localhost:5433/viva` | |
+| `DATABASE_URL` | `postgresql://viva:viva@localhost:5433/viva` | production: add `?sslmode=require` |
+| `DAILY_BUDGET_USD` | `5` | global daily LLM spend cap |
+| `RATE_REPOS_PER_HOUR` / `RATE_GRADES_PER_HOUR` | `10` / `80` | per IP |
+| `SAMPLE_REPOS` | click and verilog-uart, pinned to commits | comma-separated links shown on the home page |
+| `GITHUB_TOKEN` | — | optional: 50 commit messages instead of 20, and short-SHA links |
 | `MAX_FILES` / `MAX_INFRA_FILES` / `MAX_FILE_BYTES` | `150` / `15` / `200000` | |
 
-## Deploy
+## Deploy (Azure Container Apps + Azure Database for PostgreSQL)
 
-Planned for milestone 5: one Docker image (FastAPI serving the built React app), with Neon
-Postgres (free tier).
+Everything lives in one resource group in `koreacentral` (an Azure for Students allowed region).
+Azure for Students doesn't permit registry-side builds, so the image is built locally.
+
+```bash
+# Postgres 16 with pgvector
+az postgres flexible-server create -g rg-viva -n <db> -l koreacentral --tier Burstable --sku-name Standard_B1ms \
+  --storage-size 32 --version 16 --admin-user viva --admin-password <pw> --public-access 0.0.0.0 --yes
+az postgres flexible-server parameter set -g rg-viva --server-name <db> --name azure.extensions --value vector
+
+# Registry, image, environment, app
+az acr create -g rg-viva -n <acr> --sku Basic -l koreacentral --admin-enabled true
+az acr login -n <acr>
+docker buildx build --platform linux/amd64 -t <acr>.azurecr.io/viva:v1 --push .
+az containerapp env create -g rg-viva -n viva-env -l koreacentral
+az containerapp create -g rg-viva -n viva --environment viva-env --image <acr>.azurecr.io/viva:v1 \
+  --registry-server <acr>.azurecr.io --registry-username <acr> --registry-password <acr password> \
+  --ingress external --target-port 8000 --min-replicas 1 --max-replicas 1 --cpu 1.0 --memory 2.0Gi \
+  --secrets "db-url=postgresql://viva:<pw>@<db>.postgres.database.azure.com:5432/postgres?sslmode=require" "llm-key=<key>" \
+  --env-vars DATABASE_URL=secretref:db-url LLM_API_KEY=secretref:llm-key LLM_BASE_URL=<endpoint> DAILY_BUDGET_USD=8
+
+# Seed the samples (ingestion runs inside the app)
+curl -X POST https://<app>/api/repos -H 'Content-Type: application/json' -d '{"url": "<sample link>"}'
+```
+
+Redeploy after a change: `scripts/deploy.sh` (builds, pushes, rolls the app to the new image).
+The app runs as a single replica on purpose: background ingestion threads and the in-memory rate
+limiter assume one instance. Tear everything down with `az group delete -n rg-viva`.
+
+Rough cost on Azure credit: about $0.20 to ingest a repo and write its questions, under $0.01 per
+graded answer, plus a few dollars a week for the database, registry and the always-on replica.
 
 ## Notes
 
 - `tree-sitter` is pinned below 0.26: 0.26.0 corrupts parse trees on macOS/Python 3.13
   (segfaults when reading nodes).
+- Code is shown with font ligatures off so `<=` never renders as a different glyph.

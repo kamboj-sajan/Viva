@@ -135,3 +135,18 @@ def test_readiness_is_difficulty_weighted():
 
     assert readiness({1: 100, 2: 40}, {1: 1, 2: 3}) == 55  # (100*1 + 40*3) / 4
     assert readiness({}, {1: 2}) is None
+
+
+def test_rate_limiter():
+    import pytest
+    from fastapi import HTTPException
+
+    from viva.app import Limiter
+
+    lim = Limiter()
+    for _ in range(3):
+        lim.check("ip:1", 3)
+    with pytest.raises(HTTPException) as e:
+        lim.check("ip:1", 3)
+    assert e.value.status_code == 429
+    lim.check("ip:2", 3)  # other clients are unaffected
