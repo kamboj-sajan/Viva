@@ -82,7 +82,7 @@ export default function AnswerBox({
           disabled={busy}
           rows={7}
           placeholder="Hold your Wispr Flow key and answer out loud, like you would in the interview…"
-          className="w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3.5 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+          className="w-full resize-y rounded-xl border border-zinc-700 bg-zinc-900 py-3.5 pl-4 pr-16 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
         />
         <span className="pointer-events-none absolute right-3 top-3 font-mono text-xs tabular-nums text-zinc-500">{clock(elapsed)}</span>
       </div>

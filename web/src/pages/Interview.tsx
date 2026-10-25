@@ -70,11 +70,11 @@ export default function Interview() {
 
   return (
     <Layout>
-      <div className="mb-6 flex items-center justify-between text-sm text-zinc-500">
-        <span className="font-mono">{state.repo.owner}/{state.repo.name}</span>
-        <span className="flex items-center gap-3">
+      <div className="mb-6 flex items-center justify-between gap-3 text-sm text-zinc-500">
+        <span className="min-w-0 truncate font-mono">{state.repo.owner}/{state.repo.name}</span>
+        <span className="flex shrink-0 items-center gap-3">
           Question {state.n} of {state.size}
-          <span className="flex gap-1">
+          <span className="hidden gap-1 sm:flex">
             {Array.from({ length: state.size }, (_, i) => (
               <span key={i} className={`h-1.5 w-5 rounded-full ${i < (state.n ?? 0) ? "bg-accent" : "bg-zinc-800"}`} />
             ))}

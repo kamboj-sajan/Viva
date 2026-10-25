@@ -8,6 +8,18 @@ prove it, linked to GitHub.
 
 **Live:** https://viva.victoriousbeach-5e8cd7ae.koreacentral.azurecontainerapps.io (no sign-up)
 
+## Try it
+
+1. Open the live link, paste a public repo (or pick a sample) and watch it read the code.
+2. Answer out loud: hold your Wispr Flow key and talk; it types into the answer box.
+3. Say something your code doesn't do. Viva flags **Contradicts your code**, quotes your words,
+   and highlights the exact lines that prove it, linked to GitHub. Fix it in the follow-up.
+4. Finish five questions for a score, contradictions caught, strongest and weakest areas, a
+   shareable report, and a readiness chart across sessions.
+
+Viva can interview you about its own repo: paste `https://github.com/kamboj-sajan/Viva`. Claim
+the ingestion pipeline retries failed runs and you'll get the worker code that shows it doesn't.
+
 ## Architecture
 
 One service and one Docker image: FastAPI serves a JSON API and the built React app.
