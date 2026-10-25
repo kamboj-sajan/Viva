@@ -5,6 +5,7 @@ import pathlib
 import threading
 from contextlib import contextmanager
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -18,6 +19,12 @@ def pool() -> ConnectionPool:
     global _pool
     with _lock:
         if _pool is None:
+            try:  # fail fast with a useful message instead of the pool's 30 s of retries
+                psycopg.connect(config.DATABASE_URL, connect_timeout=3).close()
+            except psycopg.OperationalError as e:
+                raise RuntimeError(
+                    "Can't reach Postgres at DATABASE_URL. Locally: is Docker running? Try `docker compose up -d db`."
+                ) from e
             p = ConnectionPool(
                 config.DATABASE_URL,
                 min_size=1,

@@ -328,7 +328,9 @@ def generate(repo_id: int, listener: Listener | None = None, regenerate: bool = 
     first, so the first few questions are ready well before the rest."""
     claimed = db.one(
         """UPDATE repos SET questions_status = 'generating', updated_at = now()
-           WHERE id = %s AND status = 'ready' AND (questions_status IN ('pending', 'failed') OR %s) RETURNING *""",
+           WHERE id = %s AND status = 'ready' AND (questions_status IN ('pending', 'failed') OR %s
+                 OR (questions_status = 'generating' AND updated_at < now() - interval '10 minutes'))
+           RETURNING *""",
         (repo_id, regenerate),
     )
     if claimed is None:

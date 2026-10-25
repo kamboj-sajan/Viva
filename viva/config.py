@@ -24,6 +24,7 @@ LLM_MODEL_CHEAP = os.environ.get("LLM_MODEL_CHEAP", "gpt-5-mini")  # file summar
 # non-reasoning models such as gpt-4o-mini, which then run at temperature 0.
 LLM_EFFORT_STRONG = os.environ.get("LLM_EFFORT_STRONG", "medium")
 LLM_EFFORT_CHEAP = os.environ.get("LLM_EFFORT_CHEAP", "minimal")
+LLM_EFFORT_GRADE = os.environ.get("LLM_EFFORT_GRADE", "low")  # grading is interactive: keep it fast
 
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
 EMBED_DIM = _int("EMBED_DIM", 1024)

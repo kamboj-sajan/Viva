@@ -5,7 +5,7 @@ projects on your resume. Paste a public repo link; Viva reads the code, asks the
 sharp interviewer would, and grades your spoken answers (via Wispr Flow) against the actual
 code — citing the exact file and lines for every verdict.
 
-**Status:** milestone 2 of 6 — ingestion and question generation from the command line.
+**Status:** milestone 3 of 6 — ingestion, question generation, grading and a full interview in the terminal.
 
 ## Local setup
 
@@ -47,6 +47,8 @@ uv run python -m viva ingest <url> --force                          # re-ingest 
 uv run python -m viva ingest <url> --no-questions                   # ingest only
 uv run python -m viva questions <id> [--brief] # interview questions with answer keys and citations
 uv run python -m viva questions <id> --regenerate   # throw them away and write new ones
+uv run python -m viva interview <id|url> [--size 5]   # a full interview in the terminal
+uv run python -m viva eval [-v] [--note "..."]   # grader eval: verdicts on hand-written answers
 uv run python -m viva repos                    # list ingested repos and their status
 uv run python -m viva files <id> [--all]       # ranked files and why (--all shows ones cut by the cap)
 uv run python -m viva map <id>                 # per-file summaries + architecture overview
@@ -102,6 +104,44 @@ for a 107-file repo. A repeat run on the same commit is instant.
    minute after ingestion while the rest finish in the background. Roughly $0.13 per repo on
    gpt-5-mini.
 
+## How answers are graded
+
+One structured call per answer (`viva/grading.py`). The grader sees the question, the answer key
+with the cited code, the six most relevant other chunks (hybrid search on question + answer), and
+the answer, which is treated as dictated speech: fluency and filler words are ignored. It returns
+every factual claim in the answer (supported, contradicted or unverifiable, with citations), a
+status per key point (hit, partial, missed, wrong), a verdict (strong, partial, vague, wrong,
+contradicts the code, I don't know), 2-3 sentences of feedback, one follow-up aimed at the biggest
+gap, and a cited model answer.
+
+Then code enforces grounding:
+- every citation goes through the same validator as the questions; a supported or contradicted
+  claim without a valid citation becomes unverifiable, so there is never an accusation without
+  receipts;
+- a key point can only be "wrong" when a contradiction survived that check;
+- the score is a fixed rubric computed in code: must-have points weigh 2, nice-to-have 1; hit 1,
+  partial 0.5, missed 0, wrong -0.5, minus 10 per contradiction (max 30), so a confident wrong claim
+  costs more than leaving something out. Open (design/scaling) questions weigh the reasoning 70% and
+  key-point coverage 30%. The verdict is reconciled with the validated claims and the score.
+
+Follow-ups (at most two) are graded on the whole exchange, so a good follow-up answer lifts the
+question's score; only contradictions in the newest answer count, since earlier ones were counted
+already. "I don't know" skips the model entirely and shows the cited answer key.
+
+Sessions are five questions: questions you scored under 50 on before come back first, then unseen
+ones; difficulty moves up after a score of 75+ and down after one under 45, and areas and types are
+mixed. Every attempt stores the full grading output.
+
+## Grader eval
+
+`uv run python -m viva eval` grades 13 hand-written answers on a pinned commit of
+alexforencich/verilog-uart (`evals/grader_cases.json`): strong, paraphrased, partial, vague,
+confidently wrong, "I don't know", sound and inconsistent design reasoning, a wrong answer corrected
+in a follow-up, and a prompt injection. It reports pass/fail per case and, separately, false
+contradictions (the worst bug). Each run is appended to `evals/history.jsonl`; run it after every
+prompt change. Current result on gpt-5-mini at low effort: 13/13 passed, 0 false contradictions,
+~12-14 s per answer, about $0.08 per run.
+
 ## Environment variables
 
 | Variable | Default | Notes |
@@ -110,6 +150,7 @@ for a 107-file repo. A repeat run on the same commit is instant.
 | `LLM_API_KEY` | — | required |
 | `LLM_MODEL_STRONG` / `LLM_MODEL_CHEAP` | `gpt-5-mini` / `gpt-5-mini` | model or Azure deployment names |
 | `LLM_EFFORT_STRONG` / `LLM_EFFORT_CHEAP` | `medium` / `minimal` | reasoning effort; empty for non-reasoning models (then temperature 0) |
+| `LLM_EFFORT_GRADE` | `low` | grading effort; low keeps answers graded in ~12 s and passes the eval |
 | `EMBED_MODEL` / `EMBED_DIM` | `text-embedding-3-small` / `1024` | served by the same endpoint |
 | `GITHUB_TOKEN` | — | optional locally (60 API calls/hour, ~3 per ingest); needed in production |
 | `DATABASE_URL` | `postgresql://viva:viva@localhost:5433/viva` | |

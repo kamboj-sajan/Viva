@@ -39,15 +39,17 @@ def structured(
     system: str,
     prompt: str,
     tier: str = "strong",
+    effort: str | None = None,
     purpose: str,
     repo_id: int | None = None,
     max_tokens: int = 16_000,
 ) -> T:
     """One structured call, retried once if the output is cut off or fails validation."""
-    if tier == "strong":
-        model, effort = config.LLM_MODEL_STRONG, config.LLM_EFFORT_STRONG
+    model = config.LLM_MODEL_STRONG if tier == "strong" else config.LLM_MODEL_CHEAP
+    if effort is not None:  # per-call override, e.g. grading runs at its own effort for latency
+        effort = effort or None
     else:
-        model, effort = config.LLM_MODEL_CHEAP, config.LLM_EFFORT_CHEAP
+        effort = config.LLM_EFFORT_STRONG if tier == "strong" else config.LLM_EFFORT_CHEAP
     sampling = {"reasoning_effort": effort} if effort else {"temperature": 0}
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     error = "no attempt made"

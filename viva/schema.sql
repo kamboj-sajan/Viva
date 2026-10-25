@@ -102,3 +102,38 @@ CREATE TABLE IF NOT EXISTS questions (
 );
 CREATE INDEX IF NOT EXISTS questions_repo ON questions (repo_id);
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS embedding VECTOR;  -- for spotting near-duplicate questions
+
+-- Anonymous users (a cookie in the browser, a fixed id on the command line).
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    repo_id BIGINT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    size INT NOT NULL DEFAULT 5,
+    status TEXT NOT NULL DEFAULT 'active',  -- active | finished
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, repo_id);
+
+-- One row per answer. Follow-ups point at the question's first attempt through parent_id and are
+-- graded on the whole exchange, so the latest attempt in a chain is the question's score.
+CREATE TABLE IF NOT EXISTS attempts (
+    id BIGSERIAL PRIMARY KEY,
+    session_id BIGINT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    parent_id BIGINT REFERENCES attempts(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    verdict TEXT NOT NULL,  -- strong | partial | vague | wrong | contradicts_code | dont_know | skipped
+    score INT,  -- null when skipped
+    grading JSONB,
+    seconds INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS attempts_session ON attempts (session_id);
+CREATE INDEX IF NOT EXISTS attempts_question ON attempts (question_id);

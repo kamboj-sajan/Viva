@@ -9,7 +9,7 @@ from rich.table import Table
 
 import time
 
-from viva import db, github, ingest, llm, questions, retrieval
+from viva import db, evals, github, ingest, llm, questions, retrieval, sessions, terminal
 
 console = Console()
 
@@ -170,6 +170,40 @@ def print_question_stats(repo: dict, areas: list[dict], qs: list[dict]) -> None:
     )
 
 
+def cmd_interview(args) -> None:
+    if args.target.isdigit():
+        repo_id = int(args.target)
+    else:
+        with console.status("Resolving repo…") as status:
+            repo_id = ingest.ingest(args.target, listener=_listener(status))
+    terminal.interview(repo_id, size=args.size)
+
+
+def cmd_eval(args) -> None:
+    with console.status("Grading the eval answers…"):
+        summary, results = evals.run(only=args.case, note=args.note)
+    t = Table(title=f"Grader eval ({summary['model']}, effort {summary['effort']})")
+    for col in ("case", "expected", "got", "score", "key points", "contradictions", "secs", ""):
+        t.add_column(col)
+    for r in results:
+        mark = "[green]pass[/]" if r["passed"] else "[red]FAIL[/]"
+        if r["false_contradiction"]:
+            mark += " [bold red]FALSE CONTRADICTION[/]"
+        got = r["verdict"] + (f" [dim](model said {r['model_verdict']})[/]" if r["model_verdict"] != r["verdict"] else "")
+        contra = str(r["contradictions"]) + (f" [dim](+{r['downgraded']} downgraded)[/]" if r["downgraded"] else "")
+        t.add_row(r["id"], "/".join(r["expect"]), got, str(r["score"]), r["points"], contra, str(r["seconds"]), mark)
+    console.print(t)
+    color = "green" if summary["passed"] == summary["total"] and not summary["false_contradictions"] else "red"
+    console.print(
+        f"[{color}][bold]{summary['passed']}/{summary['total']} passed[/], "
+        f"{summary['false_contradictions']} false contradictions[/], avg {summary['avg_seconds']}s per answer, "
+        f"cost ${summary['cost_usd']}"
+    )
+    if args.verbose:
+        for r in results:
+            console.print(f"[bold]{r['id']}[/]: {escape(r['feedback'])}")
+
+
 def cmd_files(args) -> None:
     print_files(ingest.load(args.repo_id), show_all=args.all)
 
@@ -247,6 +281,15 @@ def main() -> None:
     s.add_argument("--regenerate", action="store_true", help="throw away existing questions and write new ones")
     s.add_argument("--brief", action="store_true", help="questions only, no answer keys")
     s.set_defaults(fn=cmd_questions)
+    s = sub.add_parser("interview", help="a full interview in the terminal")
+    s.add_argument("target", help="repo id, or a GitHub link to ingest first")
+    s.add_argument("--size", type=int, default=sessions.SESSION_SIZE, help="questions per session")
+    s.set_defaults(fn=cmd_interview)
+    s = sub.add_parser("eval", help="run the grader eval and print the results")
+    s.add_argument("--case", help="run only this case id")
+    s.add_argument("--note", default="", help="what changed, saved with the results")
+    s.add_argument("-v", "--verbose", action="store_true", help="also print the grader's feedback")
+    s.set_defaults(fn=cmd_eval)
     s = sub.add_parser("files", help="list a repo's files with ranking")
     s.add_argument("repo_id", type=int)
     s.add_argument("--all", action="store_true", help="include files that were cut by the cap")
