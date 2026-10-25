@@ -89,3 +89,28 @@ def test_missing_repo():
 def test_blob_url():
     assert blob_url("o", "r", "abc", "src/a b.py", 3, 9) == "https://github.com/o/r/blob/abc/src/a%20b.py#L3-L9"
     assert blob_url("o", "r", "abc", "x.py", 5, 5).endswith("#L5")
+
+
+def test_parse_refs():
+    from viva.github import parse_refs
+
+    def pkt(s: str) -> bytes:
+        data = s.encode()
+        return f"{len(data) + 4:04x}".encode() + data
+
+    head = "a" * 40
+    tag = "b" * 40
+    peeled = "c" * 40
+    body = (
+        pkt("# service=git-upload-pack\n") + b"0000"
+        + pkt(f"{head} HEAD\0multi_ack symref=HEAD:refs/heads/main agent=git/github\n")
+        + pkt(f"{head} refs/heads/main\n")
+        + pkt(f"{'d' * 40} refs/heads/feature/x\n")
+        + pkt(f"{tag} refs/tags/v1.0\n")
+        + pkt(f"{peeled} refs/tags/v1.0^{{}}\n")
+        + b"0000"
+    )
+    refs = parse_refs(body)
+    assert refs["HEAD"] == head and refs["refs/heads/feature/x"] == "d" * 40
+    assert refs["refs/tags/v1.0^{}"] == peeled
+    assert parse_refs(pkt("# service=git-upload-pack\n") + b"0000" + pkt("0" * 40 + " capabilities^{}\0caps\n") + b"0000") == {}

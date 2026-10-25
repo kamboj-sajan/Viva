@@ -34,6 +34,17 @@ MAX_INFRA_FILES = _int("MAX_INFRA_FILES", 15)
 MAX_FILE_BYTES = _int("MAX_FILE_BYTES", 200_000)
 MAX_TARBALL_BYTES = _int("MAX_TARBALL_BYTES", 150_000_000)
 
+# Public demo safety
+DAILY_BUDGET_USD = float(os.environ.get("DAILY_BUDGET_USD", "5"))
+RATE_REPOS_PER_HOUR = _int("RATE_REPOS_PER_HOUR", 10)  # repo submissions per IP
+RATE_GRADES_PER_HOUR = _int("RATE_GRADES_PER_HOUR", 80)  # graded answers per IP
+# Pre-ingested repos offered on the home page; pin them to a commit so they're always instant.
+SAMPLE_REPOS = [u.strip() for u in os.environ.get(
+    "SAMPLE_REPOS",
+    "https://github.com/pallets/click/tree/2247b35ea1c47c727d7a06e51fa280e12a863ff6,"
+    "https://github.com/alexforencich/verilog-uart/tree/1b867e53af738e4a8bc7c839ca2f1c07f40382dc",
+).split(",") if u.strip()]
+
 # USD per million tokens (input, output), list prices. Used for spend tracking and the daily budget.
 PRICES = {
     "gpt-5-mini": (0.25, 2.00),

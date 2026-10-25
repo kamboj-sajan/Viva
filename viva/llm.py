@@ -20,6 +20,10 @@ class LLMError(RuntimeError):
     pass
 
 
+class BudgetExceeded(LLMError):
+    pass
+
+
 _client: openai.OpenAI | None = None
 
 
@@ -45,6 +49,8 @@ def structured(
     max_tokens: int = 16_000,
 ) -> T:
     """One structured call, retried once if the output is cut off or fails validation."""
+    if usage.spent_today() >= config.DAILY_BUDGET_USD:
+        raise BudgetExceeded("Viva has used up today's demo budget. Please come back tomorrow!")
     model = config.LLM_MODEL_STRONG if tier == "strong" else config.LLM_MODEL_CHEAP
     if effort is not None:  # per-call override, e.g. grading runs at its own effort for latency
         effort = effort or None

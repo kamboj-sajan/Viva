@@ -199,8 +199,13 @@ def _code_block(path: str, start: int, end: int, files: dict[str, list[str]], co
 def finalize(question: dict, raw: Grade, answers: str, files: dict[str, list[str]], latest: str | None = None) -> dict:
     """latest: on a follow-up, the newest answer. Only contradictions in it count: earlier ones were
     already counted on their own attempt, and the candidate may have retracted them since."""
-    claims, downgraded = [], 0
+    claims, downgraded, unsaid = [], 0, 0
     for c in raw.claims:
+        # A claim must quote what the candidate actually said (on a follow-up: in the newest answer).
+        # Otherwise it's the model's own idea, and we neither credit nor accuse anyone for it.
+        if not _said(c.words, latest if latest is not None else answers):
+            unsaid += 1
+            continue
         evidence = [r.evidence() for r in (citations.check(e.model_dump(), files) for e in c.evidence[:2]) if r.ok]
         status = c.status
         if status != "unverifiable" and not evidence:
@@ -208,15 +213,12 @@ def finalize(question: dict, raw: Grade, answers: str, files: dict[str, list[str
             downgraded += 1
         claims.append({
             "claim": c.claim.strip(),
-            "words": c.words.strip() if _said(c.words, answers) else "",
+            "words": c.words.strip(),
             "status": status,
             "explanation": c.explanation.strip(),
             "evidence": evidence if status != "unverifiable" else [],
         })
-    contradictions = sum(
-        c["status"] == "contradicted" and (latest is None or (c["words"] and _said(c["words"], latest)))
-        for c in claims
-    )
+    contradictions = sum(c["status"] == "contradicted" for c in claims)
 
     by_number = {pg.point: pg for pg in raw.key_points}
     points = []
@@ -240,6 +242,7 @@ def finalize(question: dict, raw: Grade, answers: str, files: dict[str, list[str
         "key_points": points,
         "contradictions": contradictions,
         "downgraded_claims": downgraded,
+        "unsaid_claims": unsaid,
         "reasoning_quality": raw.reasoning_quality,
         "model_verdict": raw.verdict,
         "feedback": raw.feedback.strip(),
@@ -277,8 +280,20 @@ def reconcile(verdict: str, score: int, contradictions: int) -> tuple[str, int]:
 
 
 def _said(words: str, answers: str) -> bool:
-    w = citations.normalize(words.lower())
-    return len(w) >= 3 and w in citations.normalize(answers.lower())
+    """Did the candidate say this? Exact after normalizing case and punctuation, or nearly every
+    word present (dictation gets lightly cleaned up, and models trim filler words)."""
+    w, a = _plain(words), _plain(answers)
+    if len(w) < 3:
+        return False
+    if w in a:
+        return True
+    tokens = [t for t in w.split() if len(t) > 2]
+    present = set(a.split())
+    return len(tokens) >= 3 and sum(t in present for t in tokens) >= 0.85 * len(tokens)
+
+
+def _plain(text: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9' ]+", " ", text.lower()).split())
 
 
 def dont_know_result(question: dict) -> dict:

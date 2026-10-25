@@ -49,14 +49,22 @@ def test_contradiction_with_invented_citation_is_downgraded():
 
 
 def test_supported_claim_without_evidence_becomes_unverifiable():
-    c = Claim(claim="c", words="retries", status="supported", explanation="e", evidence=[])
+    c = Claim(claim="c", words="retries forever", status="supported", explanation="e", evidence=[])
     r = finalize(QUESTION, raw([c], [], verdict="partial"), ANSWER, FILES)
     assert r["claims"][0]["status"] == "unverifiable"
 
 
-def test_words_not_in_answer_are_dropped():
-    r = finalize(QUESTION, raw([claim("unverifiable", "x" * 10, words="uses a circuit breaker")], [], "vague"), ANSWER, FILES)
-    assert r["claims"][0]["words"] == ""
+def test_claims_the_candidate_never_made_are_dropped():
+    # e.g. the grader restating an answer-key point as if the candidate had said it
+    r = finalize(QUESTION, raw([claim("supported", "for attempt in range(3):", words="retries exactly three times")],
+                               [], "vague"), ANSWER, FILES)
+    assert r["claims"] == [] and r["unsaid_claims"] == 1
+
+
+def test_lightly_cleaned_words_still_count_as_said():
+    r = finalize(QUESTION, raw([claim("contradicted", "for attempt in range(3):", words="It retries forever, with a fixed delay")],
+                               [], "contradicts_code"), ANSWER, FILES)
+    assert r["contradictions"] == 1
 
 
 def test_missing_key_point_grades_default_to_missed():
@@ -120,3 +128,10 @@ def test_follow_up_only_counts_contradictions_in_latest_answer():
     assert r["contradictions"] == 0 and r["verdict"] != "contradicts_code"
     g2 = raw([claim("contradicted", "for attempt in range(3):", words="stops after three attempts")], [], "contradicts_code")
     assert finalize(QUESTION, g2, first + "\n" + latest, FILES, latest=latest)["contradictions"] == 1
+
+
+def test_readiness_is_difficulty_weighted():
+    from viva.sessions import readiness
+
+    assert readiness({1: 100, 2: 40}, {1: 1, 2: 3}) == 55  # (100*1 + 40*3) / 4
+    assert readiness({}, {1: 2}) is None

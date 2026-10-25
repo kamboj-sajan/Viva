@@ -137,3 +137,6 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS attempts_session ON attempts (session_id);
 CREATE INDEX IF NOT EXISTS attempts_question ON attempts (question_id);
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS current_question_id BIGINT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS focus TEXT;  -- null | weak
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE;

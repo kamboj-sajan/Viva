@@ -5,7 +5,7 @@ projects on your resume. Paste a public repo link; Viva reads the code, asks the
 sharp interviewer would, and grades your spoken answers (via Wispr Flow) against the actual
 code — citing the exact file and lines for every verdict.
 
-**Status:** milestone 3 of 6 — ingestion, question generation, grading and a full interview in the terminal.
+**Status:** milestone 4 of 6 — the full interview loop in the browser.
 
 ## Local setup
 
@@ -37,6 +37,22 @@ az cognitiveservices account keys list -g rg-viva -n <name> --query key1 -o tsv 
 ```
 
 To tear it all down: `az group delete -n rg-viva`.
+
+## Web app
+
+```bash
+cd web && npm install && npm run build && cd ..   # build the React app into web/dist
+uv run uvicorn viva.app:app --port 8000          # API + app on http://localhost:8000
+```
+
+For frontend work, run `uv run uvicorn viva.app:app --reload` and `cd web && npm run dev`
+(Vite on :5173 proxies `/api` to :8000).
+
+Pages: home (paste a repo or start on a sample), live ingestion progress with the included files,
+the interview (autofocused answer box for Wispr Flow, timer, `⌘/Ctrl+Enter` submit, `N` next,
+`Esc` then `D` for "I don't know"), the verdict with every claim checked against highlighted code
+and linked to GitHub, follow-ups in the same box, the session summary, progress, and a shareable
+report. Users are anonymous (a cookie).
 
 ## Command line
 

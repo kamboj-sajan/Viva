@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-accent: #9085e9;
+  --color-accent-soft: #9085e926;
+}
+
+html {
+  background: #09090b;
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-950 font-sans text-zinc-100 antialiased;
+}
+
+/* Code is evidence: no ligatures, so "<=" never renders as a different glyph. */
+.font-mono, pre, code, kbd {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+::selection {
+  background: #9085e955;
+}
+
+/* The verdict reveal */
+@keyframes pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+@keyframes alarm {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(244 63 94 / 0); }
+  50% { box-shadow: 0 0 40px 6px rgb(244 63 94 / 0.35); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.animate-pop { animation: pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.25) both; }
+.animate-rise { animation: rise 0.45s ease-out both; }
+.animate-shake { animation: shake 0.55s 0.35s both; }
+.animate-alarm { animation: alarm 1.4s ease-in-out 0.3s 2; }
+.shimmer {
+  background: linear-gradient(90deg, #a1a1aa 0%, #fafafa 50%, #a1a1aa 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop, .animate-rise, .animate-shake, .animate-alarm, .shimmer { animation: none; }
+}
+
+/* Code colors (highlight.js), tuned for the dark surface */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type { color: #c4b5fd; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #86efac; }
+.hljs-number, .hljs-literal, .hljs-symbol { color: #fdba74; }
+.hljs-comment, .hljs-quote, .hljs-meta { color: #71717a; font-style: italic; }
+.hljs-title, .hljs-title.function_, .hljs-section { color: #93c5fd; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-params { color: #f9a8d4; }
+.hljs-deletion { color: #fda4af; }
