@@ -55,7 +55,8 @@ def chains(session_id: int) -> list[dict]:
            JOIN questions q ON q.id = m.question_id
            JOIN areas ar ON ar.id = q.area_id
            JOIN LATERAL (SELECT verdict, score FROM attempts c WHERE c.id = m.id OR c.parent_id = m.id
-                         ORDER BY (c.score IS NULL), c.id DESC LIMIT 1) f ON true  -- latest scored attempt
+                         ORDER BY (c.grading IS NULL), (c.score IS NULL), c.id DESC LIMIT 1) f ON true
+                         -- latest graded attempt: "I don't know" to a follow-up keeps the earlier verdict
            WHERE m.session_id = %s AND m.parent_id IS NULL
            ORDER BY m.id""",
         (session_id,),
@@ -123,8 +124,9 @@ def summary(session_id: int) -> dict:
         "score": round(statistics.mean(r["score"] for r in answered)) if answered else 0,
         "contradictions": sum(r["contradictions"] for r in rows),
         "area_scores": area_scores,
-        "strongest": ranked[0] if len(ranked) > 1 else None,
-        "weakest": ranked[-1] if len(ranked) > 1 else None,
+        # only meaningful when the areas actually differ
+        "strongest": ranked[0] if len(set(area_scores.values())) > 1 else None,
+        "weakest": ranked[-1] if len(set(area_scores.values())) > 1 else None,
     }
 
 

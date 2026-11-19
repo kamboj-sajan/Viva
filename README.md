@@ -6,6 +6,8 @@ sharp interviewer would, and grades your spoken answers (dictated with Wispr Flo
 actual code. Every verdict comes with receipts: when you're wrong, it shows the exact lines that
 prove it, linked to GitHub.
 
+**Demo video (1:47):** https://drive.google.com/file/d/13NqXDbe_m7C5jODq-cQTF-6FBFJxUTTR/view?usp=sharing
+
 **Live:** https://viva.victoriousbeach-5e8cd7ae.koreacentral.azurecontainerapps.io (no sign-up)
 
 ## Try it
